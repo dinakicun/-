@@ -1,7 +1,7 @@
 import arcade
 import time
 import arcade.gui
-from arcade.gui import UIOnClickEvent
+from arcade.gui import UIOnClickEvent, UIBoxLayout
 
 SCREEN_TITLE = 'Игра с собачкой'
 SCREEN_WIDTH = 1000
@@ -28,6 +28,8 @@ DEAD_ZONE = 0.1
 DISTANCE_TO_CHANGE_TEXTURE = 20
 
 TILE_SCALING = 0.4
+
+NO_DAMAGE_TIMER = 1
 
 
 class Bat(arcade.Sprite):
@@ -210,11 +212,6 @@ class Second_Dog(arcade.Sprite):
             self.texture = self.idle_texture[int(self.cur_texture) % len(self.idle_texture)][1]
 
 
-class ExitButton(arcade.gui.UIFlatButton):
-    def on_click(self, event: UIOnClickEvent):
-        arcade.exit()
-
-
 class Start(arcade.View):
     def on_show_view(self):
         self.bg_layer = arcade.load_texture('resources/menu/background.png')
@@ -259,7 +256,6 @@ class Start(arcade.View):
                 self.window.show_view(game_view)
                 self.start = True
 
-
         exit_texture = arcade.load_texture(f'resources/menu/exit.png')
         exit_button = arcade.gui.UITextureButton(texture=exit_texture)
         self.v_box.add(exit_button)
@@ -267,7 +263,6 @@ class Start(arcade.View):
         @exit_button.event('on_click')
         def on_click_texture(event):
             arcade.close_window()
-
 
     def on_draw(self):
         self.clear()
@@ -297,6 +292,18 @@ class Game(arcade.View):
         self.sound_played = False
         self.music = arcade.Sound('resources/sounds/lost-soul_30sec-177569.mp3')
         self.music.play(0.5, 0, True, 1)
+        self.bones = 0
+        self.lives = 0
+        self.no_damage_timer = 0
+        self.view_left = 0
+        self.view_bottom = 0
+
+        self.bone_image = arcade.load_texture("resources/1 Dog/bone2.png")
+        self.heart_image = arcade.load_texture("resources/1 Dog/heart.png")
+
+        self.characteristics = arcade.gui.UIManager()
+        self.characteristics.enable()
+        self.box = arcade.gui.UIBoxLayout()
 
     def setup(self):
         self.player = Dog()
@@ -307,6 +314,18 @@ class Game(arcade.View):
         self.friend.center_x = 1900
         self.friend.center_y = 100
         self.platform_list = arcade.SpriteList()
+        self.lives = 3
+        self.bones = 0
+        self.no_damage_timer = 0
+
+        self.characteristics.disable()
+        self.box.clear()
+
+        self.lives_label = None
+        self.bones_label = None
+        self.characteristics.enable()
+
+        self.characteristics.add(arcade.gui.UIAnchorWidget(anchor_x="left", anchor_y="top", child=self.box))
 
         for i in range(10):
             platform = arcade.SpriteSolidColor(200, 20, (16, 40, 43))
@@ -365,6 +384,14 @@ class Game(arcade.View):
             bone.position = coordinate
             self.bone_list.append(bone)
 
+        ##Код для перемещения UIBoxLayout
+        ##Код трясется и пропадает в конце карты
+        ##Не получается по-другому закрепить UI элементы в левом верхнем углу экрана
+        self.bones_label = arcade.gui.UILabel(text=str(self.bones), width=100, height=20, font_size=16)
+        self.box.add(self.bones_label.with_space_around(left=50, top=18, bottom=8))
+        self.lives_label = arcade.gui.UILabel(text=str(self.lives), width=100, height=20, font_size=16)
+        self.box.add(self.lives_label.with_space_around(left=50, top=8))
+
     def on_update(self, delta_time):
         self.physics_engine.step()
         self.player.update_animation()
@@ -400,7 +427,16 @@ class Game(arcade.View):
             hit_list = arcade.check_for_collision_with_list(self.player, self.bone_list)
             for bone in hit_list:
                 bone.remove_from_sprite_lists()
+                self.bones += 1
         if arcade.check_for_collision(self.player, self.enemy):
+            if self.no_damage_timer > 0:
+                self.no_damage_timer -= delta_time
+            if self.no_damage_timer <= 0:
+                if self.lives > 0:
+                    self.lives -= 1
+                    self.player.stop = False
+                    self.no_damage_timer = NO_DAMAGE_TIMER
+        if self.lives < 1:
             self.player.stop = True
         if self.player.gameover:
             self.sound = arcade.Sound('resources/sounds/minecraft-dog-pain-3.mp3')
@@ -413,6 +449,8 @@ class Game(arcade.View):
             self.sound_played = True
             self.sound = arcade.Sound('resources/sounds/minecraft-dog-bark.mp3')
             self.sound.play()
+        self.lives_label.text = str(self.lives)
+        self.bones_label.text = str(self.bones)
 
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int):
         print(f'{x=}')
@@ -420,6 +458,8 @@ class Game(arcade.View):
 
     def on_draw(self):
         self.clear()
+        arcade.set_viewport(self.view_left, SCREEN_WIDTH + self.view_left, self.view_bottom,
+                            SCREEN_HEIGHT + self.view_bottom)
         arcade.draw_lrwh_rectangle_textured(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, self.bg_layer)
         arcade.draw_lrwh_rectangle_textured(1000, 0, SCREEN_WIDTH, SCREEN_HEIGHT, self.bg_layer)
         self.player.draw()
@@ -432,6 +472,11 @@ class Game(arcade.View):
         self.player.update_animation()
         self.enemy.on_update()
         self.enemy.update_animation()
+
+        arcade.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        self.characteristics.draw()
+        arcade.draw_texture_rectangle(30, SCREEN_HEIGHT - 30, 20, 20, self.bone_image)
+        arcade.draw_texture_rectangle(30, SCREEN_HEIGHT - 65, 20, 20, self.heart_image)
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.LEFT or key == arcade.key.A:
