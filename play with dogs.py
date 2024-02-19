@@ -2,6 +2,8 @@ import arcade
 import time
 import arcade.gui
 from arcade.gui import UIOnClickEvent, UIBoxLayout
+from arcade.experimental.lights import Light, LightLayer
+
 
 SCREEN_TITLE = 'Игра с собачкой'
 SCREEN_WIDTH = 1000
@@ -30,6 +32,9 @@ DISTANCE_TO_CHANGE_TEXTURE = 20
 TILE_SCALING = 0.4
 
 NO_DAMAGE_TIMER = 1
+NO_LIGHT_TIMER = 0.5
+
+AMBIENT_COLOR=(10,10,10)
 
 
 class Bat(arcade.Sprite):
@@ -295,6 +300,7 @@ class Game(arcade.View):
         self.bones = 0
         self.lives = 0
         self.no_damage_timer = 0
+        self.no_light_timer = 0
         self.view_left = 0
         self.view_bottom = 0
 
@@ -304,6 +310,13 @@ class Game(arcade.View):
         self.characteristics = arcade.gui.UIManager()
         self.characteristics.enable()
         self.box = arcade.gui.UIBoxLayout()
+
+        self.light_layer = None
+        self.player_light = None
+        self.collision_happened = False
+
+        self.darkness_activated_time = None
+
 
     def setup(self):
         self.player = Dog()
@@ -384,13 +397,21 @@ class Game(arcade.View):
             bone.position = coordinate
             self.bone_list.append(bone)
 
-        ##Код для перемещения UIBoxLayout
-        ##Код трясется и пропадает в конце карты
-        ##Не получается по-другому закрепить UI элементы в левом верхнем углу экрана
         self.bones_label = arcade.gui.UILabel(text=str(self.bones), width=100, height=20, font_size=16)
         self.box.add(self.bones_label.with_space_around(left=50, top=18, bottom=8))
         self.lives_label = arcade.gui.UILabel(text=str(self.lives), width=100, height=20, font_size=16)
         self.box.add(self.lives_label.with_space_around(left=50, top=8))
+
+        self.light_layer = LightLayer(SCREEN_WIDTH, SCREEN_HEIGHT)
+        self.light_layer.set_background_color(arcade.color.BLACK)
+
+        radius = 150
+        mode = 'soft'
+        color = arcade.csscolor.WHITE
+        self.player_light = Light(0, 0, radius, color, mode)
+
+        self.collision_happened = False
+
 
     def on_update(self, delta_time):
         self.physics_engine.step()
@@ -428,14 +449,32 @@ class Game(arcade.View):
             for bone in hit_list:
                 bone.remove_from_sprite_lists()
                 self.bones += 1
+
         if arcade.check_for_collision(self.player, self.enemy):
             if self.no_damage_timer > 0:
                 self.no_damage_timer -= delta_time
+
             if self.no_damage_timer <= 0:
                 if self.lives > 0:
+                    self.collision_happened = True
+                    self.light_layer.add(self.player_light)
                     self.lives -= 1
                     self.player.stop = False
                     self.no_damage_timer = NO_DAMAGE_TIMER
+                    self.no_light_timer = NO_LIGHT_TIMER
+                    if not self.collision_happened:
+                        self.collision_happened = True
+                        if self.player_light not in self.light_layer:
+                            self.light_layer.add(self.player_light)
+                        self.no_light_timer = NO_LIGHT_TIMER
+
+        if self.no_light_timer > 0:
+            self.no_light_timer -= delta_time
+            if self.no_light_timer <= 0:
+                if self.player_light in self.light_layer:
+                    self.light_layer.remove(self.player_light)
+                self.collision_happened = False
+
         if self.lives < 1:
             self.player.stop = True
         if self.player.gameover:
@@ -452,9 +491,8 @@ class Game(arcade.View):
         self.lives_label.text = str(self.lives)
         self.bones_label.text = str(self.bones)
 
-    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int):
-        print(f'{x=}')
-        print(f'{y=}')
+        self.player_light.position = (self.player.center_x - self.view_left, self.player.center_y - self.view_bottom)
+
 
     def on_draw(self):
         self.clear()
@@ -477,6 +515,27 @@ class Game(arcade.View):
         self.characteristics.draw()
         arcade.draw_texture_rectangle(30, SCREEN_HEIGHT - 30, 20, 20, self.bone_image)
         arcade.draw_texture_rectangle(30, SCREEN_HEIGHT - 65, 20, 20, self.heart_image)
+
+        with self.light_layer:
+            arcade.set_viewport(self.view_left, SCREEN_WIDTH + self.view_left, self.view_bottom,
+                                SCREEN_HEIGHT + self.view_bottom)
+            arcade.draw_lrwh_rectangle_textured(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, self.bg_layer)
+            arcade.draw_lrwh_rectangle_textured(1000, 0, SCREEN_WIDTH, SCREEN_HEIGHT, self.bg_layer)
+            self.player.draw()
+            self.friend.draw()
+            self.enemy.draw()
+            self.platform_list.draw()
+            self.bridge_list.draw()
+            self.barrell_list.draw()
+            self.bone_list.draw()
+            self.player.update_animation()
+
+            arcade.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+            self.characteristics.draw()
+            arcade.draw_texture_rectangle(30, SCREEN_HEIGHT - 30, 20, 20, self.bone_image)
+            arcade.draw_texture_rectangle(30, SCREEN_HEIGHT - 65, 20, 20, self.heart_image)
+        if self.collision_happened:
+            self.light_layer.draw(ambient_color=AMBIENT_COLOR)
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.LEFT or key == arcade.key.A:
@@ -502,7 +561,6 @@ class Game(arcade.View):
         elif key == arcade.key.RIGHT or key == arcade.key.D:
             self.right_pressed = False
             self.player.idle = True
-
 
 def main():
     window = arcade.Window(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, update_rate=1 / 30)
